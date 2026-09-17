@@ -1,6 +1,6 @@
 package com.devopsobs.boardgame.config;
 
-import io.micrometer.core.aop.ObservedAspect;
+import io.micrometer.observation.aop.ObservedAspect;
 import io.micrometer.observation.ObservationRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;

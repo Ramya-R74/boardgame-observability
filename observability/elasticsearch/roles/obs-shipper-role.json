@@ -15,7 +15,7 @@
       "privileges": ["auto_configure", "create_doc", "create_index", "view_index_metadata", "write"]
     }
   ],
-  "_meta": {
+  "metadata": {
     "description": "Least-privilege role for log/metric shippers. See docs/HARDENING.md - the lab compose uses the elastic superuser for simplicity; switch to this role before any shared environment."
   }
 }
