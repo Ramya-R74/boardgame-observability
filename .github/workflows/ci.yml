@@ -1,0 +1,47 @@
+name: ci
+
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build and test
+        run: mvn -B verify
+
+      # Configuration files are code. Catching a broken Logstash pipeline in CI
+      # is much cheaper than catching it at 3am when logs stop arriving.
+      - name: Validate Logstash pipeline syntax
+        run: |
+          docker run --rm \
+            -v "$PWD/observability/logstash/pipeline:/pipeline:ro" \
+            docker.elastic.co/logstash/logstash:8.15.3 \
+            logstash -t -f /pipeline/boardgame.conf --path.settings /usr/share/logstash/config
+
+      - name: Validate Beats configs
+        run: |
+          for beat in filebeat metricbeat heartbeat; do
+            docker run --rm \
+              -v "$PWD/observability/$beat/$beat.yml:/usr/share/$beat/$beat.yml:ro" \
+              docker.elastic.co/beats/$beat:8.15.3 \
+              $beat test config --strict.perms=false -c /usr/share/$beat/$beat.yml
+          done
+
+      - name: Validate Elasticsearch JSON assets
+        run: |
+          for f in $(find observability/elasticsearch -name '*.json'); do
+            python3 -c "import json,sys; json.load(open('$f'))" || exit 1
+          done
+
+      - name: Build image
+        run: docker build -t boardgame-observability:${{ github.sha }} .

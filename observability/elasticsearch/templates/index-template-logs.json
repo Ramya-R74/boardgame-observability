@@ -1,0 +1,7 @@
+{
+  "index_patterns": ["logs-boardgame.*-*"],
+  "data_stream": {},
+  "priority": 500,
+  "composed_of": ["boardgame-logs-settings", "boardgame-logs-mappings"],
+  "_meta": { "description": "Index template for boardgame application log data streams" }
+}

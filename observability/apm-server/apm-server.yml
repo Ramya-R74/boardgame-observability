@@ -1,0 +1,36 @@
+# ============================================================================
+# APM Server: receives OTLP traces from the Spring Boot app (Micrometer Tracing
+# on the OpenTelemetry bridge) and writes them to Elasticsearch as APM data.
+#
+# Result in Kibana: Observability > APM shows service maps, transaction latency
+# distributions and, because the logs carry trace.id, a "Logs" tab per trace.
+# ============================================================================
+
+apm-server:
+  host: "0.0.0.0:8200"
+
+  auth:
+    secret_token: "${APM_SECRET_TOKEN:boardgame-apm-token}"
+    anonymous:
+      enabled: false
+
+  rum:
+    enabled: false      # no browser agent in this project
+
+  # Tail-based sampling: keep every failed transaction and every slow one, sample
+  # the boring successes. This is how you get useful traces at 5% of the cost.
+  sampling:
+    tail:
+      enabled: false    # requires a local storage volume; enable in staging
+      policies:
+        - service.environment: prod
+          trace.outcome: failure
+          sample_rate: 1.0
+        - sample_rate: 0.1
+
+output.elasticsearch:
+  hosts: ["${ELASTIC_HOSTS:http://elasticsearch:9200}"]
+  username: "${ELASTIC_USER:elastic}"
+  password: "${ELASTIC_PASSWORD:changeme123}"
+
+logging.level: warning

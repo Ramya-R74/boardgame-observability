@@ -1,0 +1,46 @@
+{
+  "template": {
+    "mappings": {
+      "_source": { "enabled": true },
+      "dynamic": "true",
+      "dynamic_templates": [
+        {
+          "strings_as_keyword": {
+            "match_mapping_type": "string",
+            "mapping": { "type": "keyword", "ignore_above": 1024 }
+          }
+        }
+      ],
+      "properties": {
+        "@timestamp":               { "type": "date" },
+        "message":                  { "type": "match_only_text" },
+        "log.level":                { "type": "keyword" },
+        "log.logger":               { "type": "keyword" },
+        "service.name":             { "type": "keyword" },
+        "service.version":          { "type": "keyword" },
+        "service.environment":      { "type": "keyword" },
+        "event.dataset":            { "type": "keyword" },
+        "event.outcome":            { "type": "keyword" },
+        "event.duration_ms":        { "type": "long" },
+        "trace.id":                 { "type": "keyword" },
+        "span.id":                  { "type": "keyword" },
+        "transaction.id":           { "type": "keyword" },
+        "http.request.id":          { "type": "keyword" },
+        "http.request.method":      { "type": "keyword" },
+        "http.response.status_code":{ "type": "short" },
+        "http.route":               { "type": "keyword" },
+        "url.path":                 { "type": "keyword" },
+        "client.ip":                { "type": "ip" },
+        "client.geo.location":      { "type": "geo_point" },
+        "user_agent.original":      { "type": "keyword", "ignore_above": 512 },
+        "error.type":               { "type": "keyword" },
+        "error.message":            { "type": "match_only_text" },
+        "error.stack_trace":        { "type": "text", "index": false },
+        "container.id":             { "type": "keyword" },
+        "container.name":           { "type": "keyword" },
+        "host.name":                { "type": "keyword" }
+      }
+    }
+  },
+  "_meta": { "description": "ECS-aligned mappings for boardgame logs" }
+}

@@ -1,0 +1,89 @@
+# ============================================================================
+# Metricbeat: infrastructure + JVM metrics.
+#
+# Note the prometheus module: it scrapes the Spring Boot actuator endpoint, so
+# your Micrometer business metrics land in Elasticsearch without running a
+# separate Prometheus server. That is the piece most ELK tutorials skip.
+# ============================================================================
+
+metricbeat.modules:
+
+  # ---- the application's own metrics --------------------------------------
+  - module: prometheus
+    metricsets: [collector]
+    period: 30s
+    hosts: ["app:8080"]
+    metrics_path: /actuator/prometheus
+    # use_types + rate_counters turn Prometheus counters into proper ES numeric
+    # types and pre-computed rates. Without it everything is a flat float and
+    # counters look like meaningless ever-increasing lines.
+    use_types: true
+    rate_counters: true
+    metrics_filters:
+      include:
+        - "jvm_*"
+        - "http_server_requests_*"
+        - "boardgame_*"
+        - "hikaricp_*"
+        - "process_*"
+        - "tomcat_*"
+        - "system_*"
+      exclude:
+        - "jvm_buffer_*"
+
+  # ---- containers ----------------------------------------------------------
+  - module: docker
+    metricsets: [container, cpu, diskio, memory, network, healthcheck]
+    hosts: ["unix:///var/run/docker.sock"]
+    period: 30s
+
+  # ---- host ----------------------------------------------------------------
+  - module: system
+    period: 30s
+    metricsets: [cpu, load, memory, network, process, process_summary, filesystem]
+    process.include_top_n:
+      by_cpu: 5
+      by_memory: 5
+
+  # ---- stack self-monitoring: who watches the watchmen ---------------------
+  - module: elasticsearch
+    xpack.enabled: true
+    period: 30s
+    hosts: ["${ELASTIC_HOSTS:http://elasticsearch:9200}"]
+    username: "${ELASTIC_USER:elastic}"
+    password: "${ELASTIC_PASSWORD:changeme123}"
+
+  - module: logstash
+    xpack.enabled: true
+    period: 30s
+    hosts: ["http://logstash:9600"]
+
+  - module: kibana
+    xpack.enabled: true
+    period: 30s
+    hosts: ["${KIBANA_HOST:http://kibana:5601}"]
+    username: "${ELASTIC_USER:elastic}"
+    password: "${ELASTIC_PASSWORD:changeme123}"
+
+processors:
+  - add_docker_metadata: ~
+  - add_host_metadata: ~
+  - add_fields:
+      target: ""
+      fields:
+        service.environment: "${DEPLOY_ENV:dev}"
+
+output.elasticsearch:
+  hosts: ["${ELASTIC_HOSTS:http://elasticsearch:9200}"]
+  username: "${ELASTIC_USER:elastic}"
+  password: "${ELASTIC_PASSWORD:changeme123}"
+
+setup.kibana:
+  host: "${KIBANA_HOST:http://kibana:5601}"
+  username: "${ELASTIC_USER:elastic}"
+  password: "${ELASTIC_PASSWORD:changeme123}"
+
+# Installs the prebuilt Metricbeat dashboards in Kibana on first start.
+setup.dashboards.enabled: true
+
+logging.level: warning

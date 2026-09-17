@@ -1,0 +1,14 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:boardgame;DB_CLOSE_DELAY=-1
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  h2:
+    console:
+      enabled: true
+chaos:
+  enabled: true
+management:
+  tracing:
+    enabled: false   # no APM Server running locally

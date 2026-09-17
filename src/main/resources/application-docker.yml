@@ -1,0 +1,18 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:postgres}:5432/${POSTGRES_DB:boardgame}
+    username: ${POSTGRES_USER:boardgame}
+    password: ${POSTGRES_PASSWORD:boardgame}
+    hikari:
+      maximum-pool-size: 10
+      # Connection-pool metrics are the fastest way to spot "the DB is the problem".
+      register-mbeans: true
+      pool-name: boardgame-pool
+chaos:
+  enabled: ${CHAOS_ENABLED:true}
+management:
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://apm-server:8200}/v1/traces
+      headers:
+        Authorization: Bearer ${APM_SECRET_TOKEN:}

@@ -1,0 +1,72 @@
+# ============================================================================
+# Filebeat: collects container stdout and ships it to Logstash.
+#
+# Uses hint-based autodiscovery rather than a static path glob:
+#   - containers opt IN with the co.elastic.logs/enabled label,
+#   - JSON decoding is configured per-container via labels,
+#   - new containers are picked up with no Filebeat restart.
+# ============================================================================
+
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      hints.enabled: true
+      # Nothing is collected unless a container carries the enable hint.
+      hints.default_config.enabled: false
+
+processors:
+  # Adds container.id / container.name / container.image and the compose labels
+  # used for routing in the Logstash pipeline.
+  - add_docker_metadata:
+      host: "unix:///var/run/docker.sock"
+  - add_host_metadata:
+      netinfo.enabled: false
+  - add_fields:
+      target: ""
+      fields:
+        service.environment: "${DEPLOY_ENV:dev}"
+  # Drop Filebeat's own logs, otherwise a log-shipping error produces a log which
+  # is shipped, which produces a log. This loop has taken down clusters.
+  - drop_event:
+      when:
+        or:
+          - contains: { container.image.name: "beats/filebeat" }
+          - contains: { container.image.name: "logstash" }
+  # Trim fields nobody queries. Every field costs index size and mapping slots.
+  - drop_fields:
+      ignore_missing: true
+      fields:
+        - agent.ephemeral_id
+        - docker.container.labels.desktop_docker_io/binds/0/Source
+        - host.mac
+        - host.ip
+
+# ---- output -----------------------------------------------------------------
+# Logstash rather than direct-to-Elasticsearch because we want a persistent queue,
+# redaction and routing. For a simple deployment, output.elasticsearch is fine and
+# faster; see docs/OBSERVABILITY_GUIDE.md for the trade-off.
+output.logstash:
+  hosts: ["logstash:5044"]
+  # Retry forever rather than dropping: the persistent queue downstream is sized
+  # to absorb a restart.
+  max_retries: -1
+  bulk_max_size: 2048
+  slow_start: true
+
+# Filebeat's own templates/ILM are off; Logstash owns the data stream and our
+# bootstrap owns the templates. Two owners = mapping conflicts.
+setup.template.enabled: false
+setup.ilm.enabled: false
+
+# Internal queue sizing: 4096 events or 1s, whichever first.
+queue.mem:
+  events: 4096
+  flush.min_events: 512
+  flush.timeout: 1s
+
+http.enabled: true
+http.host: 0.0.0.0
+http.port: 5066
+
+logging.level: info
+logging.metrics.enabled: false

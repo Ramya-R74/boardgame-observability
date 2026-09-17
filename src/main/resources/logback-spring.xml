@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The single most important file for ELK quality.
+
+  Why ECS JSON instead of the default Spring Boot text pattern:
+    - No grok. Grok is CPU-expensive, fragile, and breaks the first time someone
+      changes a log format. Structured-at-source means Logstash does routing and
+      enrichment only.
+    - Stack traces arrive as ONE document with an error.stack_trace field, instead
+      of 40 unrelated lines that you then have to stitch with a multiline codec.
+    - Field names already match Elastic Common Schema, so Kibana APM, Filebeat and
+      your app logs all agree on what "service.name" means and correlation works.
+
+  Local dev keeps the pretty console pattern - JSON is unreadable for humans.
+-->
+<configuration>
+  <springProperty scope="context" name="appName" source="spring.application.name" defaultValue="boardgame-api"/>
+  <springProperty scope="context" name="appVersion" source="info.app.version" defaultValue="unknown"/>
+  <springProperty scope="context" name="deployEnv" source="deployment.environment" defaultValue="local"/>
+
+  <!-- ===================== JSON (docker / staging / prod) ===================== -->
+  <appender name="ECS_JSON" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder class="co.elastic.logging.logback.EcsEncoder">
+      <serviceName>${appName}</serviceName>
+      <serviceVersion>${appVersion}</serviceVersion>
+      <serviceEnvironment>${deployEnv}</serviceEnvironment>
+      <!-- Everything in MDC becomes a top-level field. Because our filter uses
+           dotted keys (http.route, event.duration_ms) they land as real ECS fields. -->
+      <includeMarkers>true</includeMarkers>
+      <stackTraceAsArray>false</stackTraceAsArray>
+      <!-- Static fields useful for routing in Logstash -->
+      <additionalField>
+        <key>event.dataset</key>
+        <value>boardgame.app</value>
+      </additionalField>
+    </encoder>
+  </appender>
+
+  <!--
+    Async wrapper. Logging must never become the bottleneck of the request path.
+    discardingThreshold=0 means we keep WARN/ERROR even when the queue is full;
+    the default (20%) silently throws away exactly the events you care about.
+  -->
+  <appender name="ASYNC_JSON" class="ch.qos.logback.classic.AsyncAppender">
+    <appender-ref ref="ECS_JSON"/>
+    <queueSize>8192</queueSize>
+    <discardingThreshold>0</discardingThreshold>
+    <neverBlock>true</neverBlock>
+    <includeCallerData>false</includeCallerData>
+  </appender>
+
+  <!-- ===================== Human-readable (local) ===================== -->
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} %-5level [%X{http.request.id:-no-req-id}] [%X{traceId:-},%X{spanId:-}] %logger{30} - %msg%n</pattern>
+    </encoder>
+  </appender>
+
+  <springProfile name="local,test">
+    <root level="INFO">
+      <appender-ref ref="CONSOLE"/>
+    </root>
+    <logger name="com.devopsobs.boardgame" level="DEBUG"/>
+  </springProfile>
+
+  <springProfile name="docker,staging,prod">
+    <root level="INFO">
+      <appender-ref ref="ASYNC_JSON"/>
+    </root>
+    <logger name="com.devopsobs.boardgame" level="INFO"/>
+    <!-- Framework noise at WARN. Every INFO line from a framework you did not write
+         is volume you pay to store and never read. -->
+    <logger name="org.springframework.web" level="WARN"/>
+    <logger name="org.hibernate" level="WARN"/>
+    <logger name="org.apache.catalina" level="WARN"/>
+  </springProfile>
+</configuration>

@@ -1,0 +1,48 @@
+{
+  "description": "Final enrichment for boardgame logs: geo, UA parsing, derived fields",
+  "processors": [
+    {
+      "set": {
+        "field": "event.ingested",
+        "value": "{{{_ingest.timestamp}}}",
+        "ignore_failure": true
+      }
+    },
+    {
+      "geoip": {
+        "field": "client.ip",
+        "target_field": "client.geo",
+        "ignore_missing": true,
+        "ignore_failure": true
+      }
+    },
+    {
+      "user_agent": {
+        "field": "user_agent.original",
+        "target_field": "user_agent",
+        "ignore_missing": true,
+        "ignore_failure": true
+      }
+    },
+    {
+      "script": {
+        "description": "Bucket latency so dashboards can group without a runtime field",
+        "lang": "painless",
+        "ignore_failure": true,
+        "source": "if (ctx.event != null && ctx.event.duration_ms != null) { long d = ((Number) ctx.event.duration_ms).longValue(); if (d < 100) { ctx.event.latency_bucket = 'fast'; } else if (d < 500) { ctx.event.latency_bucket = 'normal'; } else if (d < 2000) { ctx.event.latency_bucket = 'slow'; } else { ctx.event.latency_bucket = 'critical'; } }"
+      }
+    },
+    {
+      "remove": {
+        "field": ["agent.ephemeral_id", "ecs.version", "input.type"],
+        "ignore_missing": true,
+        "ignore_failure": true
+      }
+    }
+  ],
+  "on_failure": [
+    {
+      "set": { "field": "error.ingest_pipeline", "value": "{{{_ingest.on_failure_message}}}" }
+    }
+  ]
+}

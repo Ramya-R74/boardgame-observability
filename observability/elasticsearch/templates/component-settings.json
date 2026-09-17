@@ -1,0 +1,15 @@
+{
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "boardgame-logs-policy",
+      "index.number_of_shards": 1,
+      "index.number_of_replicas": 0,
+      "index.refresh_interval": "5s",
+      "index.codec": "best_compression",
+      "index.mapping.total_fields.limit": 2000,
+      "index.mapping.ignore_malformed": true,
+      "index.default_pipeline": "boardgame-logs-ingest"
+    }
+  },
+  "_meta": { "description": "Index settings for boardgame log data streams" }
+}

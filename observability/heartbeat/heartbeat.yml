@@ -1,0 +1,85 @@
+# ============================================================================
+# Heartbeat: synthetic / black-box monitoring.
+#
+# Metrics and logs tell you what the service thinks is happening. Heartbeat tells
+# you what a user experiences. You need both: a service can look perfectly healthy
+# on its own metrics while being completely unreachable.
+# ============================================================================
+
+heartbeat.monitors:
+
+  - type: http
+    id: boardgame-readiness
+    name: Board game API readiness
+    urls: ["http://app:8080/actuator/health/readiness"]
+    schedule: '@every 15s'
+    timeout: 5s
+    check.response:
+      status: [200]
+      json:
+        - description: status must be UP
+          condition:
+            equals:
+              status: "UP"
+    tags: ["boardgame", "critical", "api"]
+
+  - type: http
+    id: boardgame-catalogue
+    name: Catalogue endpoint (user journey)
+    urls: ["http://app:8080/api/boardgames"]
+    schedule: '@every 30s'
+    timeout: 10s
+    check.request:
+      method: GET
+      headers:
+        X-Request-Id: "heartbeat-synthetic"
+    check.response:
+      status: [200]
+    tags: ["boardgame", "critical", "user-journey"]
+
+  - type: http
+    id: boardgame-write-path
+    name: Review creation (write path)
+    urls: ["http://app:8080/api/boardgames/1/reviews"]
+    schedule: '@every 60s'
+    timeout: 10s
+    check.request:
+      method: POST
+      headers:
+        Content-Type: application/json
+      body: '{"rating":5,"comment":"synthetic heartbeat check"}'
+    check.response:
+      status: [201]
+    tags: ["boardgame", "write-path"]
+
+  - type: tcp
+    id: postgres-port
+    name: PostgreSQL reachable
+    hosts: ["postgres:5432"]
+    schedule: '@every 30s'
+    tags: ["dependency", "database"]
+
+  - type: http
+    id: kibana-up
+    name: Kibana available
+    urls: ["${KIBANA_HOST:http://kibana:5601}/api/status"]
+    schedule: '@every 60s'
+    tags: ["stack"]
+
+processors:
+  - add_fields:
+      target: ""
+      fields:
+        service.environment: "${DEPLOY_ENV:dev}"
+
+output.elasticsearch:
+  hosts: ["${ELASTIC_HOSTS:http://elasticsearch:9200}"]
+  username: "${ELASTIC_USER:elastic}"
+  password: "${ELASTIC_PASSWORD:changeme123}"
+
+setup.kibana:
+  host: "${KIBANA_HOST:http://kibana:5601}"
+  username: "${ELASTIC_USER:elastic}"
+  password: "${ELASTIC_PASSWORD:changeme123}"
+
+logging.level: warning

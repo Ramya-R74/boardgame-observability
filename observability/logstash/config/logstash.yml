@@ -1,0 +1,16 @@
+node.name: logstash-01
+http.host: "0.0.0.0"
+
+# Persistent queue. Without it, an Elasticsearch outage means Logstash drops events
+# from its in-memory queue and you lose exactly the logs from the incident you are
+# trying to investigate.
+queue.type: persisted
+queue.max_bytes: 1gb
+
+# Dead letter queue catches documents Elasticsearch rejects (usually mapping
+# conflicts) so you can inspect them instead of losing them silently.
+dead_letter_queue.enable: true
+dead_letter_queue.max_bytes: 512mb
+
+pipeline.ordered: false
+log.level: info

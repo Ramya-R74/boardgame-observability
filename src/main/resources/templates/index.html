@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="utf-8"/>
+  <title>Board Game Catalogue</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 52rem; line-height: 1.55; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border-bottom: 1px solid #ddd; padding: .5rem; text-align: left; }
+    code { background: #f4f4f5; padding: .1rem .3rem; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>Board Game Catalogue</h1>
+  <p>Request id: <code th:text="${requestId}">-</code></p>
+  <table>
+    <tr><th>Name</th><th>Category</th><th>Difficulty</th><th>Max players</th></tr>
+    <tr th:each="g : ${games}">
+      <td th:text="${g.name}"></td>
+      <td th:text="${g.category}"></td>
+      <td th:text="${g.difficulty}"></td>
+      <td th:text="${g.maxPlayers}"></td>
+    </tr>
+  </table>
+  <p><a href="/actuator/health">health</a> &middot;
+     <a href="/actuator/prometheus">metrics</a> &middot;
+     <a href="/api/boardgames">api</a></p>
+</body>
+</html>

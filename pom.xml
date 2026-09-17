@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.3.4</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.devopsobs</groupId>
+  <artifactId>boardgame-observability</artifactId>
+  <version>1.0.0</version>
+  <name>boardgame-observability</name>
+  <description>Board game catalogue with a production-grade ELK observability setup</description>
+  <packaging>jar</packaging>
+
+  <properties>
+    <java.version>17</java.version>
+    <ecs-logging.version>1.6.0</ecs-logging.version>
+    <jacoco.version>0.8.12</jacoco.version>
+  </properties>
+
+  <dependencies>
+    <!-- ===== application ===== -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-thymeleaf</artifactId>
+    </dependency>
+    <!-- AOP is required for Micrometer's @Observed / @Timed aspects -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-aop</artifactId>
+    </dependency>
+
+    <!-- ===== observability: metrics ===== -->
+    <!-- Actuator exposes health / metrics / prometheus / loggers endpoints -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <!-- Prometheus exposition format, scraped by Metricbeat's prometheus module -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-registry-prometheus</artifactId>
+    </dependency>
+
+    <!-- ===== observability: tracing ===== -->
+    <!-- Micrometer Tracing on the OpenTelemetry bridge. Puts traceId/spanId in MDC
+         so every log line can be joined to a trace in Kibana APM. -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-tracing-bridge-otel</artifactId>
+    </dependency>
+    <!-- Ships spans over OTLP/HTTP to Elastic APM Server -->
+    <dependency>
+      <groupId>io.opentelemetry</groupId>
+      <artifactId>opentelemetry-exporter-otlp</artifactId>
+    </dependency>
+    <!-- Traces JDBC / repository calls as child spans -->
+    <dependency>
+      <groupId>net.ttddyy.observation</groupId>
+      <artifactId>datasource-micrometer-spring-boot</artifactId>
+      <version>1.0.6</version>
+    </dependency>
+
+    <!-- ===== observability: logging =====
+         ECS-compliant JSON straight out of Logback. This is the single most
+         important dependency in the whole project: it means zero grok in Logstash. -->
+    <dependency>
+      <groupId>co.elastic.logging</groupId>
+      <artifactId>logback-ecs-encoder</artifactId>
+      <version>${ecs-logging.version}</version>
+    </dependency>
+
+    <!-- ===== persistence ===== -->
+    <dependency>
+      <groupId>org.postgresql</groupId>
+      <artifactId>postgresql</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+    <dependency>
+      <groupId>com.h2database</groupId>
+      <artifactId>h2</artifactId>
+      <scope>runtime</scope>
+    </dependency>
+
+    <!-- ===== test ===== -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <!-- Layered jars give you a cacheable Docker build: deps change rarely,
+               your classes change every commit. -->
+          <layers><enabled>true</enabled></layers>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.version}</version>
+        <executions>
+          <execution><id>prepare-agent</id><goals><goal>prepare-agent</goal></goals></execution>
+          <execution><id>report</id><phase>verify</phase><goals><goal>report</goal></goals></execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

@@ -1,0 +1,5 @@
+- pipeline.id: boardgame
+  path.config: "/usr/share/logstash/pipeline/boardgame.conf"
+  pipeline.workers: 2
+  pipeline.batch.size: 250
+  pipeline.batch.delay: 50

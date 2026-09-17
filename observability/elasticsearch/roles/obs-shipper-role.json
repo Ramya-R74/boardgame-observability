@@ -1,0 +1,21 @@
+{
+  "cluster": [
+    "monitor",
+    "read_ilm",
+    "manage_index_templates",
+    "manage_ingest_pipelines"
+  ],
+  "indices": [
+    {
+      "names": ["logs-boardgame.*", ".ds-logs-boardgame.*"],
+      "privileges": ["auto_configure", "create_doc", "create_index", "view_index_metadata", "write"]
+    },
+    {
+      "names": ["filebeat-*", "metricbeat-*", "heartbeat-*", ".ds-filebeat-*", ".ds-metricbeat-*", ".ds-heartbeat-*"],
+      "privileges": ["auto_configure", "create_doc", "create_index", "view_index_metadata", "write"]
+    }
+  ],
+  "_meta": {
+    "description": "Least-privilege role for log/metric shippers. See docs/HARDENING.md - the lab compose uses the elastic superuser for simplicity; switch to this role before any shared environment."
+  }
+}

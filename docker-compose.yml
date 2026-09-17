@@ -1,0 +1,251 @@
+# Board game app + full Elastic Observability stack.
+# Requires ~8GB of RAM available to Docker. Start with: make up
+name: boardgame-obs
+
+x-elastic-env: &elastic-env
+  ELASTIC_HOSTS: http://elasticsearch:9200
+  ELASTIC_USER: elastic
+  ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-changeme123}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    # Bound the log files on disk. Without this a chatty container fills the host
+    # volume and takes the whole node down - a classic 3am incident.
+    max-size: "20m"
+    max-file: "5"
+
+services:
+
+  # ============================ application ============================
+  app:
+    build:
+      context: .
+    image: boardgame-observability:${APP_VERSION:-1.0.0}
+    container_name: boardgame-app
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-boardgame}
+      POSTGRES_USER: ${POSTGRES_USER:-boardgame}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-boardgame}
+      DEPLOY_ENV: ${DEPLOY_ENV:-dev}
+      APP_VERSION: ${APP_VERSION:-1.0.0}
+      CHAOS_ENABLED: "true"
+      TRACE_SAMPLE_RATE: "1.0"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://apm-server:8200
+      APM_SECRET_TOKEN: ${APM_SECRET_TOKEN:-boardgame-apm-token}
+    ports: ["8080:8080"]
+    logging: *default-logging
+    labels:
+      # Filebeat hint-based autodiscovery reads these. Nothing is shipped unless a
+      # container opts in, which keeps noisy infra containers out of your index.
+      co.elastic.logs/enabled: "true"
+      co.elastic.logs/json.keys_under_root: "true"
+      co.elastic.logs/json.overwrite_keys: "true"
+      co.elastic.logs/json.add_error_key: "true"
+      co.elastic.logs/json.expand_keys: "true"
+      co.elastic.logs/json.message_key: "message"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 60s
+    networks: [obs]
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: boardgame-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-boardgame}
+      POSTGRES_USER: ${POSTGRES_USER:-boardgame}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-boardgame}
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-boardgame}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [obs]
+
+  # ============================ storage + UI ============================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-8.15.3}
+    container_name: elasticsearch
+    environment:
+      node.name: es01
+      discovery.type: single-node
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-changeme123}
+      # Security ON. Lab-only compromise: TLS on the HTTP layer is off so that
+      # Beats configs stay readable. See docs/HARDENING.md before copying this
+      # anywhere real.
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      xpack.license.self_generated.type: basic
+      # Heap must be <= 50% of the container limit and never above ~31GB.
+      ES_JAVA_OPTS: "-Xms1g -Xmx1g"
+      bootstrap.memory_lock: "true"
+    ulimits:
+      memlock: { soft: -1, hard: -1 }
+      nofile: { soft: 65536, hard: 65536 }
+    volumes: ["esdata:/usr/share/elasticsearch/data"]
+    ports: ["9200:9200"]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -u elastic:${ELASTIC_PASSWORD:-changeme123} http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+    networks: [obs]
+
+  # One-shot: sets the kibana_system password, installs the ILM policy,
+  # component templates and index template. Everything downstream depends on it.
+  es-setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-8.15.3}
+    container_name: es-setup
+    depends_on:
+      elasticsearch: { condition: service_healthy }
+    environment:
+      <<: *elastic-env
+      KIBANA_PASSWORD: ${KIBANA_PASSWORD:-kibanapass123}
+    volumes:
+      - ./observability/elasticsearch:/bootstrap:ro
+    command: ["/bin/bash", "/bootstrap/bootstrap.sh"]
+    networks: [obs]
+    restart: "no"
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION:-8.15.3}
+    container_name: kibana
+    depends_on:
+      es-setup: { condition: service_completed_successfully }
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      ELASTICSEARCH_USERNAME: kibana_system
+      ELASTICSEARCH_PASSWORD: ${KIBANA_PASSWORD:-kibanapass123}
+      # Required for alerting/reporting to work; must be >=32 chars and stable.
+      XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:-a_32_character_long_key_for_kibana_1}
+      XPACK_SECURITY_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:-a_32_character_long_key_for_kibana_1}
+      XPACK_REPORTING_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:-a_32_character_long_key_for_kibana_1}
+    ports: ["5601:5601"]
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep -q '\"level\":\"available\"'"]
+      interval: 15s
+      timeout: 10s
+      retries: 30
+    networks: [obs]
+
+  # ============================ ingest ============================
+  logstash:
+    image: docker.elastic.co/logstash/logstash:${STACK_VERSION:-8.15.3}
+    container_name: logstash
+    depends_on:
+      es-setup: { condition: service_completed_successfully }
+    environment:
+      <<: *elastic-env
+      LS_JAVA_OPTS: "-Xms512m -Xmx512m"
+      DEPLOY_ENV: ${DEPLOY_ENV:-dev}
+    volumes:
+      - ./observability/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./observability/logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+      - ./observability/logstash/config/pipelines.yml:/usr/share/logstash/config/pipelines.yml:ro
+      - lsdata:/usr/share/logstash/data
+    ports:
+      - "5044:5044"    # beats input
+      - "9600:9600"    # monitoring API
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9600/_node/pipelines | grep -q boardgame"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+    networks: [obs]
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:${STACK_VERSION:-8.15.3}
+    container_name: filebeat
+    user: root
+    depends_on:
+      logstash: { condition: service_started }
+    environment:
+      <<: *elastic-env
+      DEPLOY_ENV: ${DEPLOY_ENV:-dev}
+    volumes:
+      - ./observability/filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - filebeatdata:/usr/share/filebeat/data
+    command: ["filebeat", "-e", "--strict.perms=false"]
+    logging: *default-logging
+    networks: [obs]
+
+  metricbeat:
+    image: docker.elastic.co/beats/metricbeat:${STACK_VERSION:-8.15.3}
+    container_name: metricbeat
+    user: root
+    depends_on:
+      kibana: { condition: service_healthy }
+    environment:
+      <<: *elastic-env
+      KIBANA_HOST: http://kibana:5601
+      DEPLOY_ENV: ${DEPLOY_ENV:-dev}
+    volumes:
+      - ./observability/metricbeat/metricbeat.yml:/usr/share/metricbeat/metricbeat.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys/fs/cgroup:/hostfs/sys/fs/cgroup:ro
+      - /proc:/hostfs/proc:ro
+      - /:/hostfs:ro
+      - metricbeatdata:/usr/share/metricbeat/data
+    command: ["metricbeat", "-e", "--strict.perms=false", "-system.hostfs=/hostfs"]
+    logging: *default-logging
+    networks: [obs]
+
+  heartbeat:
+    image: docker.elastic.co/beats/heartbeat:${STACK_VERSION:-8.15.3}
+    container_name: heartbeat
+    user: root
+    depends_on:
+      kibana: { condition: service_healthy }
+    environment:
+      <<: *elastic-env
+      KIBANA_HOST: http://kibana:5601
+      DEPLOY_ENV: ${DEPLOY_ENV:-dev}
+    volumes:
+      - ./observability/heartbeat/heartbeat.yml:/usr/share/heartbeat/heartbeat.yml:ro
+      - heartbeatdata:/usr/share/heartbeat/data
+    command: ["heartbeat", "-e", "--strict.perms=false"]
+    logging: *default-logging
+    networks: [obs]
+
+  apm-server:
+    image: docker.elastic.co/apm/apm-server:${STACK_VERSION:-8.15.3}
+    container_name: apm-server
+    depends_on:
+      kibana: { condition: service_healthy }
+    environment:
+      <<: *elastic-env
+      APM_SECRET_TOKEN: ${APM_SECRET_TOKEN:-boardgame-apm-token}
+      KIBANA_HOST: http://kibana:5601
+    volumes:
+      - ./observability/apm-server/apm-server.yml:/usr/share/apm-server/apm-server.yml:ro
+    ports: ["8200:8200"]
+    command: ["--strict.perms=false", "-e"]
+    logging: *default-logging
+    networks: [obs]
+
+volumes:
+  esdata:
+  pgdata:
+  lsdata:
+  filebeatdata:
+  metricbeatdata:
+  heartbeatdata:
+
+networks:
+  obs:
+    driver: bridge

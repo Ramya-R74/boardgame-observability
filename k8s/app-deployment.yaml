@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: boardgame-api
+  labels:
+    app.kubernetes.io/name: boardgame-api
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app.kubernetes.io/name: boardgame-api }
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: boardgame-api
+        app.kubernetes.io/version: "1.0.0"
+      annotations:
+        # Filebeat hints - the Kubernetes equivalent of the compose labels.
+        co.elastic.logs/enabled: "true"
+        co.elastic.logs/json.keys_under_root: "true"
+        co.elastic.logs/json.overwrite_keys: "true"
+        co.elastic.logs/json.expand_keys: "true"
+        co.elastic.logs/json.add_error_key: "true"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: app
+          image: boardgame-observability:1.0.0
+          ports: [{ containerPort: 8080, name: http }]
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: prod
+            - name: DEPLOY_ENV
+              value: production
+            - name: APP_VERSION
+              valueFrom:
+                fieldRef:
+                  fieldPath: "metadata.labels['app.kubernetes.io/version']"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://apm-server.observability.svc:8200
+            - name: TRACE_SAMPLE_RATE
+              value: "0.1"          # sample in prod; 1.0 will melt your APM index
+            - name: POSTGRES_HOST
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: boardgame-db, key: password } }
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits:   { cpu: "1",  memory: 1Gi }
+          # Three distinct probes. Using one endpoint for all three is the most
+          # common Kubernetes observability mistake: a slow DB then causes
+          # Kubernetes to kill a pod that was only degraded.
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 10
+          lifecycle:
+            preStop:
+              exec: { command: ["sleep", "10"] }   # let the LB drain first
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: boardgame-api
+spec:
+  selector: { app.kubernetes.io/name: boardgame-api }
+  ports: [{ port: 80, targetPort: http, name: http }]
